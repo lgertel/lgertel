@@ -90,6 +90,16 @@ describe("facts the prose states", () => {
     expect(refused((d) => { d.review!.window = { since: "2026-09-30", until: "2026-09-16" }; })).toEqual(["review: window 2026-09-30 to 2026-09-16 runs backwards"]));
   test("an open week is not compared across series read at different hours", () =>
     expect(refused((d) => { d.prs_merged!.org!.weeks![12]!.count = 1; })).toEqual([]));
+  test("a not-read block and its not-measured row must name one cause", () => {
+    const partialReview = (reason: string) => refused((d) => {
+      d.review = { population: "install", source: "delivery_meters", state: "partial", observed_at: "2026-09-30T14:00Z" } as never;
+      d.unmeasured = [{ metric: "review", reason }];
+    });
+    expect(partialReview("not_declared")).toEqual(["unmeasured: review gives not_declared while its block says partial"]);
+    expect(partialReview("source_partial")).toEqual([]);
+  });
+  test("the tokens block's hour is a real hour too", () =>
+    expect(refused((d) => { (d.tokens as { observed_at: string }).observed_at = "2026-02-30T14:00Z"; })).toEqual(["tokens.observed_at: 2026-02-30T14:00Z is not a real hour"]));
   test("the sample breaks none of them", () => expect(validate(sample())).toEqual([]));
 });
 

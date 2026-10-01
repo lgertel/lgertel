@@ -137,6 +137,7 @@ export function proseFacts(d: Delivery, now: Date = new Date()): string[] {
   }
   const win = d.review?.window;
   if (win && win.since > win.until) out.push(`review: window ${win.since} to ${win.until} runs backwards`);
+  if (d.tokens) hours.push(["tokens.observed_at", d.tokens.observed_at]);
   for (const [where, h] of hours) if (!realHour(h)) out.push(`${where}: ${h} is not a real hour`);
   for (const [mine, org] of [[d.prs_merged?.operator, d.prs_merged?.org], [d.prs_closed_unmerged?.operator, d.prs_closed_unmerged?.org]] as const) {
     if (mine?.state !== "read" || org?.state !== "read") continue;
@@ -148,12 +149,24 @@ export function proseFacts(d: Delivery, now: Date = new Date()): string[] {
   }
   const blockOf = new Map<string, { state: State } | undefined>([...blocks, ["tokens_per_merged_pr", d.tokens]]);
   for (const u of d.unmeasured ?? []) {
-    if (blockOf.get(u.metric)?.state === "read") out.push(`unmeasured: ${u.metric} is listed as not measured and was read`);
+    const state = blockOf.get(u.metric)?.state;
+    if (state === "read") out.push(`unmeasured: ${u.metric} is listed as not measured and was read`);
+    // A block that did not read is described twice, by its state and by this row: they must name one cause.
+    else if (state && u.reason !== "not_published" && u.reason !== STATE_REASON[state as Exclude<State, "read">]) {
+      out.push(`unmeasured: ${u.metric} gives ${u.reason} while its block says ${state}`);
+    }
   }
   return out;
 }
 
 // ─── words ──────────────────────────────────────────────────────────────────
+
+/** The not-measured reason that names the same cause as a block's state. */
+const STATE_REASON: Record<Exclude<State, "read">, string> = {
+  partial: "source_partial",
+  unreadable: "source_unreadable",
+  rate_limited: "rate_limited",
+};
 
 const STATE_WORDS: Record<Exclude<State, "read">, string> = {
   partial: "the source was only partly read at this reading, so no figure is published",
