@@ -6,7 +6,8 @@ name: render delivery
 # README.md from that copy, and commit only when either file changed. A fetch that
 # fails or a JSON that fails the schema still re-renders from the kept copy, so a dead
 # feed shows "Last reading <date>" after 48 hours, and then the run fails so the
-# failure mail goes out. Needs no secret beyond the GITHUB_TOKEN every run is given.
+# failure mail goes out. A feed still served but older than 48 hours fails the run too.
+# Needs no secret beyond the GITHUB_TOKEN every run is given.
 
 on:
   schedule:
@@ -71,3 +72,6 @@ jobs:
       - name: fail when the reading was not fresh
         if: steps.fetch.outputs.fresh != 'yes'
         run: exit 1
+
+      - name: fail when the reading is older than 48 hours
+        run: bun scripts/render.ts --json data/delivery.json --check --require-recent

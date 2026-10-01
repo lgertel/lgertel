@@ -16,7 +16,11 @@
  * screened as plain markdown. `--now` fixes the clock, for tests.
  *
  * The output depends on the JSON, on `--data-repo`, and on whether the reading is older
- * than 48 hours, so an hourly run over an unchanged JSON changes nothing.
+ * than 48 hours, so an hourly run over an unchanged JSON changes the README once: when
+ * that reading crosses 48 hours.
+ *
+ * `--check --require-recent` also exits 4 when the reading is older than 48 hours, so
+ * the workflow can fail on a feed that is still served but no longer updated.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,16 +57,65 @@ export interface Delivery {
   legs_started?: Block;
   system_updates?: Block;
   repos_active_30d?: { state: State; observed_at: string; count?: number; completeness?: "exact" | "lower_bound" };
+  /** Never rendered; read only to check the not-measured list against it. */
+  tokens?: { state: State; observed_at: string };
   unmeasured?: Array<{ metric: string; reason: string }>;
 }
 
 // ─── validation ─────────────────────────────────────────────────────────────
 
+/**
+ * The schema, then the facts the prose below states about the data and the schema
+ * cannot express. A reading that breaks one is refused like a schema failure, so the
+ * section never says "of them", "mine included", "ISO week", "not measured" or
+ * "last reading" about numbers that make the sentence false.
+ */
 export function validator(schemaPath = SCHEMA_PATH): (data: unknown) => string[] {
   const ajv = new Ajv({ allErrors: true, strict: true, strictRequired: false });
   addFormats(ajv);
   const validate = ajv.compile(JSON.parse(readFileSync(schemaPath, "utf8")));
-  return (data) => (validate(data) ? [] : (validate.errors ?? []).map((e) => `${e.instancePath || "/"} ${e.message ?? "is invalid"}`));
+  return (data) => {
+    if (!validate(data)) return (validate.errors ?? []).map((e) => `${e.instancePath || "/"} ${e.message ?? "is invalid"}`);
+    return proseFacts(data as Delivery);
+  };
+}
+
+/** `2026-09-30T14:00Z` names a real hour when it parses and prints back the same. */
+const realHour = (h: string) => {
+  const t = Date.parse(`${h.slice(0, 16)}:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 16) === h.slice(0, 16);
+};
+
+export function proseFacts(d: Delivery): string[] {
+  const out: string[] = [];
+  const hours: Array<[string, string]> = [["/generated_at", d.generated_at]];
+  const blocks: Array<[string, Block | Review | Delivery["repos_active_30d"] | undefined]> = [
+    ["prs_merged_operator", d.prs_merged?.operator], ["prs_merged_org", d.prs_merged?.org],
+    ["prs_closed_unmerged_operator", d.prs_closed_unmerged?.operator], ["prs_closed_unmerged_org", d.prs_closed_unmerged?.org],
+    ["review", d.review], ["cards_completed", d.cards_completed], ["legs_started", d.legs_started],
+    ["system_updates", d.system_updates], ["repos_active_30d", d.repos_active_30d],
+  ];
+  for (const [name, b] of blocks) {
+    if (!b) continue;
+    hours.push([`${name}.observed_at`, b.observed_at]);
+    for (const w of (b as Block).weeks ?? []) {
+      if (new Date(`${w.week_start}T00:00:00Z`).getUTCDay() !== 1) out.push(`${name}: week_start ${w.week_start} is not a Monday`);
+      if (w.on_system_repo !== undefined && w.on_system_repo > w.count) out.push(`${name}: ${w.week_start} has more on the system's repository than in all`);
+    }
+  }
+  for (const [where, h] of hours) if (!realHour(h)) out.push(`${where}: ${h} is not a real hour`);
+  for (const [mine, org] of [[d.prs_merged?.operator, d.prs_merged?.org], [d.prs_closed_unmerged?.operator, d.prs_closed_unmerged?.org]] as const) {
+    if (mine?.state !== "read" || org?.state !== "read") continue;
+    for (const w of mine.weeks ?? []) {
+      const o = org.weeks?.find((x) => x.week_start === w.week_start);
+      if (o && o.count < w.count) out.push(`the company's ${w.week_start} is below mine, which it includes`);
+    }
+  }
+  const blockOf = new Map<string, { state: State } | undefined>([...blocks, ["tokens_per_merged_pr", d.tokens]]);
+  for (const u of d.unmeasured ?? []) {
+    if (blockOf.get(u.metric)?.state === "read") out.push(`unmeasured: ${u.metric} is listed as not measured and was read`);
+  }
+  return out;
 }
 
 // ─── words ──────────────────────────────────────────────────────────────────
@@ -116,8 +169,11 @@ const weekWords = (w: Week) => (w.partial ? `in the ISO week of ${w.week_start},
 function companyClause(org: Block | undefined, week: string, mineObserved: string): string {
   const row = sameWeek(org, week);
   if (!row) return "";
-  const asOf = org!.observed_at === mineObserved ? "" : ` (as of ${hour(org!.observed_at)})`;
-  return `; the company's, all operators, mine included: **${num(row.count)}**${asOf}`;
+  const notes: string[] = [];
+  if (org!.observed_at !== mineObserved) notes.push(`as of ${hour(org!.observed_at)}`);
+  if (row.partial) notes.push("the week open at its reading");
+  const tail = notes.length > 0 ? ` (${notes.join(", ")})` : "";
+  return `; the company's, all operators, mine included: **${num(row.count)}**${tail}`;
 }
 
 function notMeasured(label: string, b: { state: State; observed_at: string } | undefined): string {
@@ -209,7 +265,7 @@ export function renderBlock(d: Delivery, opts: RenderOptions): string {
   if (isOld(d.generated_at, opts.now)) {
     lines.push(`Last reading ${hour(d.generated_at)}. Every figure below is from that reading.`, "");
   }
-  lines.push(figureMerged(d), figureReview(d), figureCards(d), figureClosed(d), "", LIMITATIONS, "", "### Twelve weeks and the current one", "", ...table(d), "");
+  lines.push(figureMerged(d), figureReview(d), figureCards(d), figureClosed(d), "", LIMITATIONS, "", "### Week by week", "", ...table(d), "");
   const r = d.review;
   if (read(r)) {
     lines.push(`Blocking findings caught before merge, per merged pull request on the system's own repository from ${r.window!.since} to ${r.window!.until}: mean ${r.p1_per_merged_pr_mean}, as of ${hour(r.observed_at)}.`, "");
@@ -283,11 +339,15 @@ export function main(argv: string[]): number {
   }
   const errors = validator()(data);
   if (errors.length > 0) {
-    console.error(`render: ${jsonPath} fails the schema; nothing written`);
+    console.error(`render: ${jsonPath} fails the schema or a fact the section states; nothing written`);
     for (const e of errors) console.error(`  ${e}`);
     return 1;
   }
   if (checkOnly) {
+    if (argv.includes("--require-recent") && isOld((data as Delivery).generated_at, now)) {
+      console.error(`render: ${jsonPath} passes the schema, but its reading of ${(data as Delivery).generated_at} is older than ${OLD_AFTER_HOURS} hours`);
+      return 4;
+    }
     console.log(`render: ${jsonPath} passes the schema`);
     return 0;
   }

@@ -55,6 +55,30 @@ describe("schema", () => {
   });
 });
 
+describe("facts the prose states", () => {
+  const validate = validator();
+  const refused = (mutate: (d: ReturnType<typeof sample>) => void) => {
+    const d = sample();
+    mutate(d);
+    return validate(d);
+  };
+  test("a week_start that is not a Monday is refused", () =>
+    expect(refused((d) => { d.cards_completed!.weeks![0]!.week_start = "2026-07-07"; })).toEqual(["cards_completed: week_start 2026-07-07 is not a Monday"]));
+  test("more on the system's repository than in all is refused", () =>
+    expect(refused((d) => { d.prs_merged!.operator!.weeks![3]!.on_system_repo = 999; })).toEqual([`prs_merged_operator: ${MONDAYS[3]} has more on the system's repository than in all`]));
+  test("the company below mine is refused, for both pull-request series", () => {
+    expect(refused((d) => { d.prs_merged!.org!.weeks![2]!.count = 1; })).toEqual([`the company's ${MONDAYS[2]} is below mine, which it includes`]);
+    expect(refused((d) => { d.prs_closed_unmerged!.org!.weeks![2]!.count = 0; })).toEqual([`the company's ${MONDAYS[2]} is below mine, which it includes`]);
+  });
+  test("a metric both read and listed as not measured is refused", () =>
+    expect(refused((d) => { d.unmeasured = [{ metric: "review", reason: "source_partial" }]; })).toEqual(["unmeasured: review is listed as not measured and was read"]));
+  test("an hour the pattern accepts but no clock has is refused", () => {
+    expect(refused((d) => { d.generated_at = "2026-02-30T14:00Z"; })).toEqual(["/generated_at: 2026-02-30T14:00Z is not a real hour"]);
+    expect(refused((d) => { d.review!.observed_at = "2026-09-30T25:00Z"; })).toEqual(["review.observed_at: 2026-09-30T25:00Z is not a real hour"]);
+  });
+  test("the sample breaks none of them", () => expect(validate(sample())).toEqual([]));
+});
+
 describe("CLI", () => {
   const dir = mkdtempSync(join(tmpdir(), "render-"));
   const run = (data: unknown, readme = PROSE) => {
@@ -75,6 +99,12 @@ describe("CLI", () => {
     expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(PROSE);
     writeFileSync(join(dir, "d.json"), JSON.stringify({ ...sample(), usd: 1 }));
     expect(main(["--json", join(dir, "d.json"), "--check"])).toBe(1);
+  });
+  test("--check --require-recent exits 4 past 48 hours and 0 before", () => {
+    writeFileSync(join(dir, "d.json"), JSON.stringify(sample()));
+    expect(main(["--json", join(dir, "d.json"), "--check", "--require-recent", "--now", AT(47).toISOString()])).toBe(0);
+    expect(main(["--json", join(dir, "d.json"), "--check", "--require-recent", "--now", AT(49).toISOString()])).toBe(4);
+    expect(main(["--json", join(dir, "d.json"), "--check", "--now", AT(49).toISOString()])).toBe(0);
   });
   test("a valid JSON writes README.md and the block alone", () => {
     const r = run(sample());
@@ -127,7 +157,7 @@ describe("the block", () => {
   test("then the limitations paragraph verbatim, the table, the counting notes", () => {
     const iFig = block.indexOf(figures[3]);
     const iLim = block.indexOf(`\n${LIMITATIONS}\n`);
-    const iTable = block.indexOf("### Twelve weeks and the current one");
+    const iTable = block.indexOf("### Week by week");
     const iHow = block.indexOf("### How these are counted");
     expect(iFig).toBeGreaterThan(-1);
     expect(iLim).toBeGreaterThan(iFig);
@@ -150,17 +180,16 @@ describe("the block", () => {
 });
 
 describe("what is never published", () => {
-  test("a tokens block that WAS read reaches no line but the not-measured list", () => {
+  test("a tokens block that WAS read reaches no line at all", () => {
     const d = sample();
-    d.tokens = { population: "install", source: "leg_ledger", state: "read", observed_at: "2026-09-30T14:00Z", floor: true, per_merged_pr: 123_456_789, weeks: series(1_000_000) };
+    d.tokens = { population: "install", source: "leg_ledger", state: "read", observed_at: "2026-09-30T14:00Z", floor: true, per_merged_pr: 123_456_789, weeks: series(1_000_000) } as never;
+    d.unmeasured = [];
     expect(validator()(d)).toEqual([]);
     const block = renderBlock(d, { now: AT(1) });
     expect(block).not.toContain("123,456,789");
     expect(block).not.toContain("123456789");
     expect(block).not.toContain("1,000,011");
-    const tokenLines = block.split("\n").filter((l) => /token/i.test(l));
-    expect(tokenLines.length).toBe(1);
-    expect(tokenLines[0]).toStartWith("- Not measured at this reading:");
+    expect(block.split("\n").filter((l) => /token/i.test(l))).toEqual([]);
   });
   test("the totals are not published", () => {
     const block = renderBlock(sample(), { now: AT(1) });
@@ -192,6 +221,15 @@ describe("the figure's week", () => {
     expect(first).toEndWith("as of 2026-09-30 02:00 UTC");
     const same = renderBlock(sample(), { now: AT(1) }).split("\n").find((l) => l.startsWith("- **"))!;
     expect(same).toContain("mine included: **511** ·");
+  });
+  test("the company's row still open at its reading says so", () => {
+    const d = sample();
+    d.prs_merged!.org!.weeks![11]!.partial = true;
+    const first = renderBlock(d, { now: AT(1) }).split("\n").find((l) => l.startsWith("- **"))!;
+    expect(first).toContain("mine included: **511** (the week open at its reading) ·");
+    d.prs_merged!.org!.observed_at = "2026-09-30T05:00Z";
+    const both = renderBlock(d, { now: AT(1) }).split("\n").find((l) => l.startsWith("- **"))!;
+    expect(both).toContain("mine included: **511** (as of 2026-09-30 05:00 UTC, the week open at its reading) ·");
   });
 });
 
