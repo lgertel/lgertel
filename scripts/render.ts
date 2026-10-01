@@ -6,7 +6,7 @@
  *                         [--block-out <path>] [--now <ISO time>]
  *
  * The JSON is validated against `data/delivery.schema.json` (a closed schema: counts,
- * dates and enums only) before anything is written. An invalid JSON exits 1 and leaves
+ * dates, bounded means, flags and enums) before anything is written. An invalid JSON exits 1 and leaves
  * every file untouched. Everything above `<!-- delivery:start -->` is hand-written and
  * is kept byte for byte; the section between the markers is replaced. A README with no
  * markers gets them appended once, at the end.
@@ -14,8 +14,8 @@
  * `--block-out` also writes the generated section alone (no markers), so it can be
  * screened as plain markdown. `--now` fixes the clock, for tests.
  *
- * The output depends only on the JSON and on whether its reading is older than 48 hours,
- * so an hourly run over an unchanged JSON changes nothing.
+ * The output depends on the JSON, on `--data-repo`, and on whether the reading is older
+ * than 48 hours, so an hourly run over an unchanged JSON changes nothing.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

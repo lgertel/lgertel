@@ -44,7 +44,7 @@ describe("schema", () => {
   test("the sample is valid", () => expect(validate(sample())).toEqual([]));
   test("a title key anywhere is refused", () => {
     const d = sample();
-    (d.cards_completed as Record<string, unknown>).title = "a private card title";
+    (d.cards_completed as unknown as Record<string, unknown>).title = "a private card title";
     expect(validate(d).length).toBeGreaterThan(0);
   });
   test("a dollar key is refused", () => expect(validate({ ...sample(), usd: 100 }).length).toBeGreaterThan(0));
