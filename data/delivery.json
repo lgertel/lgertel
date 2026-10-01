@@ -1,0 +1,444 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-01T15:00Z",
+  "windows": {
+    "week": "iso-week"
+  },
+  "prs_merged": {
+    "operator": {
+      "population": "operator",
+      "source": "github_search",
+      "state": "read",
+      "observed_at": "2026-09-30T02:00Z",
+      "weeks": [
+        {
+          "week_start": "2026-07-06",
+          "count": 366,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-13",
+          "count": 61,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-20",
+          "count": 288,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-27",
+          "count": 527,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-03",
+          "count": 259,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-10",
+          "count": 251,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-17",
+          "count": 127,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-24",
+          "count": 72,
+          "on_system_repo": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-31",
+          "count": 28,
+          "on_system_repo": 1,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-07",
+          "count": 77,
+          "on_system_repo": 41,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-14",
+          "count": 233,
+          "on_system_repo": 211,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-21",
+          "count": 344,
+          "on_system_repo": 339,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-28",
+          "count": 144,
+          "on_system_repo": 124,
+          "partial": true
+        }
+      ]
+    },
+    "org": {
+      "population": "org",
+      "source": "github_search",
+      "state": "read",
+      "observed_at": "2026-09-30T02:00Z",
+      "includes_operator": true,
+      "weeks": [
+        {
+          "week_start": "2026-07-06",
+          "count": 419,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-13",
+          "count": 103,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-20",
+          "count": 383,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-27",
+          "count": 718,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-03",
+          "count": 588,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-10",
+          "count": 359,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-17",
+          "count": 939,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-24",
+          "count": 1069,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-31",
+          "count": 693,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-07",
+          "count": 488,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-14",
+          "count": 514,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-21",
+          "count": 593,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-28",
+          "count": 215,
+          "partial": true
+        }
+      ]
+    }
+  },
+  "prs_closed_unmerged": {
+    "operator": {
+      "population": "operator",
+      "source": "github_search",
+      "state": "read",
+      "observed_at": "2026-09-30T02:00Z",
+      "weeks": [
+        {
+          "week_start": "2026-07-06",
+          "count": 7,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-13",
+          "count": 8,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-20",
+          "count": 18,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-27",
+          "count": 24,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-03",
+          "count": 31,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-10",
+          "count": 15,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-17",
+          "count": 1,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-24",
+          "count": 1,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-31",
+          "count": 1,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-07",
+          "count": 0,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-14",
+          "count": 1,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-21",
+          "count": 1,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-28",
+          "count": 0,
+          "partial": true
+        }
+      ]
+    },
+    "org": {
+      "population": "org",
+      "source": "github_search",
+      "state": "read",
+      "observed_at": "2026-09-30T02:00Z",
+      "includes_operator": true,
+      "weeks": [
+        {
+          "week_start": "2026-07-06",
+          "count": 7,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-13",
+          "count": 9,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-20",
+          "count": 19,
+          "partial": false
+        },
+        {
+          "week_start": "2026-07-27",
+          "count": 27,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-03",
+          "count": 32,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-10",
+          "count": 16,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-17",
+          "count": 2,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-24",
+          "count": 2,
+          "partial": false
+        },
+        {
+          "week_start": "2026-08-31",
+          "count": 5,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-07",
+          "count": 4,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-14",
+          "count": 7,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-21",
+          "count": 10,
+          "partial": false
+        },
+        {
+          "week_start": "2026-09-28",
+          "count": 8,
+          "partial": true
+        }
+      ]
+    }
+  },
+  "review": {
+    "population": "install",
+    "source": "delivery_meters",
+    "state": "read",
+    "observed_at": "2026-10-01T15:00Z",
+    "window": {
+      "since": "2026-09-17",
+      "until": "2026-10-01"
+    },
+    "merged_prs_in_window": 598,
+    "rounds_per_merged_pr_mean": 3.43,
+    "rounds_per_merged_pr_median": 2,
+    "p1_per_merged_pr_mean": 1.74
+  },
+  "cards_completed": {
+    "population": "board",
+    "source": "board",
+    "state": "read",
+    "observed_at": "2026-10-01T15:00Z",
+    "weeks": [
+      {
+        "week_start": "2026-08-24",
+        "count": 65,
+        "partial": false
+      },
+      {
+        "week_start": "2026-08-31",
+        "count": 135,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-07",
+        "count": 134,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-14",
+        "count": 286,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-21",
+        "count": 415,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-28",
+        "count": 150,
+        "partial": true
+      }
+    ]
+  },
+  "legs_started": {
+    "population": "install",
+    "source": "leg_ledger",
+    "state": "read",
+    "observed_at": "2026-10-01T15:00Z",
+    "weeks": [
+      {
+        "week_start": "2026-09-14",
+        "count": 272,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-21",
+        "count": 478,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-28",
+        "count": 238,
+        "partial": true
+      }
+    ],
+    "total": 988
+  },
+  "system_updates": {
+    "population": "install",
+    "source": "system_updates",
+    "state": "read",
+    "observed_at": "2026-10-01T15:00Z",
+    "weeks": [
+      {
+        "week_start": "2026-08-31",
+        "count": 1,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-07",
+        "count": 10,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-14",
+        "count": 31,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-21",
+        "count": 7,
+        "partial": false
+      },
+      {
+        "week_start": "2026-09-28",
+        "count": 13,
+        "partial": true
+      }
+    ],
+    "total": 62
+  },
+  "tokens": {
+    "population": "install",
+    "source": "leg_ledger",
+    "state": "partial",
+    "observed_at": "2026-10-01T15:00Z"
+  },
+  "unmeasured": [
+    {
+      "metric": "tokens_per_merged_pr",
+      "reason": "not_published"
+    },
+    {
+      "metric": "repos_active_30d",
+      "reason": "not_published"
+    }
+  ]
+}
