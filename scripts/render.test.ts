@@ -147,6 +147,20 @@ describe("splice", () => {
     expect(out.endsWith(`${END}\n\nfooter\n`)).toBe(true);
     expect(out).not.toContain("\nold\n");
   });
+  test("markers shown inside a code fence are left alone", () => {
+    const fenced = `${PROSE}\n\`\`\`md\n${START}\nexample prose\n${END}\n\`\`\`\nTail\n`;
+    const out = splice(fenced, block);
+    expect(out.startsWith(fenced)).toBe(true);
+    expect(out.slice(fenced.length)).toBe(`\n${START}\n${block}\n${END}\n`);
+    const tilde = `${PROSE}~~~~\n${START}\n~~~\n${END}\n~~~~\n${START}\nold\n${END}\n`;
+    expect(splice(tilde, block)).toBe(`${PROSE}~~~~\n${START}\n~~~\n${END}\n~~~~\n${START}\n${block}\n${END}\n`);
+  });
+  test("CRLF outside the markers is kept byte for byte", () => {
+    const crlf = `# A\r\n\r\nprose\r\n${START}\r\nold\r\n${END}\r\ntail\r\n`;
+    const out = splice(crlf, block);
+    expect(out.startsWith("# A\r\n\r\nprose\r\n")).toBe(true);
+    expect(out.endsWith(`${END}\r\ntail\r\n`)).toBe(true);
+  });
   test("malformed markers are refused", () => {
     expect(() => splice(`${PROSE}${END}\n${START}\n`, block)).toThrow();
     expect(() => splice(`${PROSE}${START}\n`, block)).toThrow();

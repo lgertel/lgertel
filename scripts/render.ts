@@ -291,7 +291,7 @@ export function renderBlock(d: Delivery, opts: RenderOptions): string {
   lines.push("### How these are counted", "");
   lines.push(
     "- **Mine**: pull requests I authored. **The company's**: every repository in the organization, every operator, mine included. A week is an ISO week, Monday to Sunday, in UTC. A figure marked open, in the list or the table, was counted before its week ended.",
-    "- **Merged** and **closed unmerged**: one search per week and per population, read as the total the search reports, never by listing rows. The system's own repository is the one that holds the system running the rest, which is where most of my merges land.",
+    "- **Merged** and **closed unmerged**: one search per week and per population, read as the total the search reports, never by listing rows. The system's own repository is the one that holds the system running the rest; the table shows how many of my merges landed there each week.",
     "- **Review rounds**: on the system's own repository only, over the window named in the figure. The median is what a typical pull request took; the mean sits beside it.",
     "- **Work items completed**: items on my work board closed as completed. Items closed as not planned are left out.",
     "- **Agent runs started**: one session on one work item, counted when it starts, whether or not it finished.",
@@ -313,16 +313,42 @@ export function renderBlock(d: Delivery, opts: RenderOptions): string {
 // ─── the README ─────────────────────────────────────────────────────────────
 
 export function splice(readme: string, block: string): string {
-  const start = readme.indexOf(START);
-  const end = readme.indexOf(END);
-  if (start === -1 && end === -1) {
+  const starts = markerLines(readme, START);
+  const ends = markerLines(readme, END);
+  if (starts.length === 0 && ends.length === 0) {
     const base = readme.endsWith("\n") ? readme : `${readme}\n`;
     return `${base}\n${START}\n${block}\n${END}\n`;
   }
-  if (start === -1 || end === -1 || end < start || readme.indexOf(START, start + 1) !== -1 || readme.indexOf(END, end + 1) !== -1) {
-    throw new Error(`README markers are malformed: expected exactly one ${START} before exactly one ${END}`);
+  if (starts.length !== 1 || ends.length !== 1 || ends[0]! < starts[0]!) {
+    throw new Error(`README markers are malformed: expected exactly one ${START} line before exactly one ${END} line`);
   }
-  return `${readme.slice(0, start)}${START}\n${block}\n${readme.slice(end)}`;
+  return `${readme.slice(0, starts[0])}${START}\n${block}\n${readme.slice(ends[0])}`;
+}
+
+/**
+ * The offset of every line that is exactly `marker` (a trailing CR allowed) and sits
+ * outside a fenced code block, so a marker shown as an example is left alone. A fence
+ * opens on three or more backticks or tildes and closes on a bare run of the same
+ * character at least as long (CommonMark).
+ */
+function markerLines(readme: string, marker: string): number[] {
+  const out: number[] = [];
+  let fence: { ch: string; len: number } | null = null;
+  let offset = 0;
+  for (const line of readme.split("\n")) {
+    const text = line.replace(/\r$/, "");
+    const open = /^ {0,3}(`{3,}|~{3,})/.exec(text);
+    if (fence === null && open) {
+      fence = { ch: open[1]![0]!, len: open[1]!.length };
+    } else if (fence !== null) {
+      const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(text);
+      if (close && close[1]![0] === fence.ch && close[1]!.length >= fence.len) fence = null;
+    } else if (text === marker) {
+      out.push(offset);
+    }
+    offset += line.length + 1;
+  }
+  return out;
 }
 
 // ─── CLI ────────────────────────────────────────────────────────────────────
