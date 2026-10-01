@@ -1,9 +1,12 @@
 name: render delivery
 
 # Hourly, and by hand: fetch the public delivery.json from the data repository, check it
-# against this repository's own copy of the schema, rewrite the section between the
-# delivery markers in README.md, and commit only when the section changed.
-# Needs no secret beyond the GITHUB_TOKEN every run is given.
+# against this repository's own copy of the schema, keep it as data/delivery.json (the
+# last reading that passed), rewrite the section between the delivery markers in
+# README.md from that copy, and commit only when either file changed. A fetch that
+# fails or a JSON that fails the schema still re-renders from the kept copy, so a dead
+# feed shows "Last reading <date>" after 48 hours, and then the run fails so the
+# failure mail goes out. Needs no secret beyond the GITHUB_TOKEN every run is given.
 
 on:
   schedule:
@@ -33,19 +36,38 @@ jobs:
       - name: install
         run: bun install --frozen-lockfile
 
-      - name: fetch the reading
-        run: curl -fsSL --retry 3 -o "$RUNNER_TEMP/delivery.json" "https://raw.githubusercontent.com/${DATA_REPO}/main/delivery.json"
-
-      - name: validate and render
-        run: bun scripts/render.ts --json "$RUNNER_TEMP/delivery.json" --readme README.md --data-repo "$DATA_REPO"
-
-      - name: commit when the section changed
+      - name: fetch and check the reading
+        id: fetch
         run: |
-          if git diff --quiet -- README.md; then
-            echo "README.md unchanged"
+          if curl -fsSL --retry 3 -o "$RUNNER_TEMP/delivery.json" "https://raw.githubusercontent.com/${DATA_REPO}/main/delivery.json" \
+            && bun scripts/render.ts --json "$RUNNER_TEMP/delivery.json" --check; then
+            cp "$RUNNER_TEMP/delivery.json" data/delivery.json
+            echo "fresh=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::the reading could not be fetched or failed the schema; rendering from the last kept reading"
+            echo "fresh=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: render from the kept reading
+        run: |
+          if [ ! -f data/delivery.json ]; then
+            echo "::error::no reading has ever passed; README.md left as it is"
+            exit 1
+          fi
+          bun scripts/render.ts --json data/delivery.json --readme README.md --data-repo "$DATA_REPO"
+
+      - name: commit when anything changed
+        run: |
+          git add -- data/delivery.json README.md
+          if git diff --cached --quiet; then
+            echo "nothing changed"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "delivery: render the reading" -- README.md
+          git commit -m "delivery: render the reading" -- data/delivery.json README.md
           git push
+
+      - name: fail when the reading was not fresh
+        if: steps.fetch.outputs.fresh != 'yes'
+        run: exit 1

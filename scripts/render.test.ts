@@ -68,6 +68,14 @@ describe("CLI", () => {
     expect(r.code).toBe(1);
     expect(r.readme).toBe(PROSE);
   });
+  test("--check validates and writes nothing", () => {
+    writeFileSync(join(dir, "d.json"), JSON.stringify(sample()));
+    writeFileSync(join(dir, "README.md"), PROSE);
+    expect(main(["--json", join(dir, "d.json"), "--check", "--readme", join(dir, "README.md")])).toBe(0);
+    expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(PROSE);
+    writeFileSync(join(dir, "d.json"), JSON.stringify({ ...sample(), usd: 1 }));
+    expect(main(["--json", join(dir, "d.json"), "--check"])).toBe(1);
+  });
   test("a valid JSON writes README.md and the block alone", () => {
     const r = run(sample());
     expect(r.code).toBe(0);
@@ -119,7 +127,7 @@ describe("the block", () => {
   test("then the limitations paragraph verbatim, the table, the counting notes", () => {
     const iFig = block.indexOf(figures[3]);
     const iLim = block.indexOf(`\n${LIMITATIONS}\n`);
-    const iTable = block.indexOf("### Twelve weeks");
+    const iTable = block.indexOf("### Twelve weeks and the current one");
     const iHow = block.indexOf("### How these are counted");
     expect(iFig).toBeGreaterThan(-1);
     expect(iLim).toBeGreaterThan(iFig);
@@ -130,13 +138,60 @@ describe("the block", () => {
   test("the table holds thirteen weeks, newest first, the open one marked", () => {
     const rows = block.split("\n").filter((l) => /^\| \d{4}-/.test(l));
     expect(rows.length).toBe(13);
-    expect(rows[0]).toStartWith(`| ${MONDAYS[12]} (so far) |`);
+    expect(rows[0]).toStartWith(`| ${MONDAYS[12]} (open at this reading) |`);
     expect(rows[12]).toStartWith(`| ${MONDAYS[0]} |`);
   });
 
-  test("no tokens figure, no raw HTML", () => {
-    expect(block).not.toMatch(/\btokens? (spent|per)\b[^(]*\*\*/);
-    expect(block).not.toContain("<");
+  test("no raw HTML", () => expect(block).not.toContain("<"));
+
+  test("the blocking-findings mean is published below the table", () => {
+    expect(block).toContain("Blocking findings caught before merge, per merged pull request on the system's own repository from 2026-09-16 to 2026-09-30: mean 2, as of 2026-09-30 14:00 UTC.");
+  });
+});
+
+describe("what is never published", () => {
+  test("a tokens block that WAS read reaches no line but the not-measured list", () => {
+    const d = sample();
+    d.tokens = { population: "install", source: "leg_ledger", state: "read", observed_at: "2026-09-30T14:00Z", floor: true, per_merged_pr: 123_456_789, weeks: series(1_000_000) };
+    expect(validator()(d)).toEqual([]);
+    const block = renderBlock(d, { now: AT(1) });
+    expect(block).not.toContain("123,456,789");
+    expect(block).not.toContain("123456789");
+    expect(block).not.toContain("1,000,011");
+    const tokenLines = block.split("\n").filter((l) => /token/i.test(l));
+    expect(tokenLines.length).toBe(1);
+    expect(tokenLines[0]).toStartWith("- Not measured at this reading:");
+  });
+  test("the totals are not published", () => {
+    const block = renderBlock(sample(), { now: AT(1) });
+    expect(block).not.toMatch(/\b600\b(?! pull requests)/);
+    expect(block).not.toContain("120");
+  });
+});
+
+describe("the figure's week", () => {
+  test("is the newest complete week by date, whatever the row order", () => {
+    const d = sample();
+    d.cards_completed!.weeks = [...d.cards_completed!.weeks!].reverse();
+    d.prs_merged!.operator!.weeks = [...d.prs_merged!.operator!.weeks!].reverse();
+    expect(validator()(d)).toEqual([]);
+    const figures = renderBlock(d, { now: AT(1) }).split("\n").filter((l) => l.startsWith("- **"));
+    expect(figures[0]).toStartWith(`- **311** · pull requests merged in the ISO week of ${MONDAYS[11]},`);
+    expect(figures[2]).toStartWith(`- **111** · work items completed in the ISO week of ${MONDAYS[11]} ·`);
+  });
+  test("an open week is said to be open at this reading", () => {
+    const d = sample();
+    d.cards_completed!.weeks = [d.cards_completed!.weeks![12]!];
+    expect(renderBlock(d, { now: AT(1) })).toContain(`work items completed in the ISO week of ${MONDAYS[12]}, open at this reading ·`);
+  });
+  test("the company's figure carries its own as-of when read at another hour", () => {
+    const d = sample();
+    d.prs_merged!.org!.observed_at = "2026-09-30T05:00Z";
+    const first = renderBlock(d, { now: AT(1) }).split("\n").find((l) => l.startsWith("- **"))!;
+    expect(first).toContain(`mine included: **511** (as of 2026-09-30 05:00 UTC) ·`);
+    expect(first).toEndWith("as of 2026-09-30 02:00 UTC");
+    const same = renderBlock(sample(), { now: AT(1) }).split("\n").find((l) => l.startsWith("- **"))!;
+    expect(same).toContain("mine included: **511** ·");
   });
 });
 
@@ -172,5 +227,11 @@ describe("a source that was not read", () => {
     const first = renderBlock(d, { now: AT(1) }).split("\n").find((l) => l.startsWith("- **"))!;
     expect(first).toContain("mine, ");
     expect(first).not.toContain("the company's");
+  });
+  test("a repositories block that was not read says not measured", () => {
+    const d = sample();
+    d.repos_active_30d = { population: "org", source: "github_search", state: "rate_limited", observed_at: "2026-09-30T02:00Z" } as never;
+    expect(validator()(d)).toEqual([]);
+    expect(renderBlock(d, { now: AT(1) })).toContain("- **Repositories with a merge in the last 30 days**: not measured; the source turned the query away for its rate limit at this reading, as of 2026-09-30 02:00 UTC.");
   });
 });
