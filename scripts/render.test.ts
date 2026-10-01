@@ -73,9 +73,23 @@ describe("facts the prose states", () => {
   test("a metric both read and listed as not measured is refused", () =>
     expect(refused((d) => { d.unmeasured = [{ metric: "review", reason: "source_partial" }]; })).toEqual(["unmeasured: review is listed as not measured and was read"]));
   test("an hour the pattern accepts but no clock has is refused", () => {
-    expect(refused((d) => { d.generated_at = "2026-02-30T14:00Z"; })).toEqual(["/generated_at: 2026-02-30T14:00Z is not a real hour"]);
+    expect(refused((d) => { d.generated_at = "2026-02-30T14:00Z"; })).toContain("/generated_at: 2026-02-30T14:00Z is not a real hour");
     expect(refused((d) => { d.review!.observed_at = "2026-09-30T25:00Z"; })).toEqual(["review.observed_at: 2026-09-30T25:00Z is not a real hour"]);
   });
+  test("a reading from the future, or a block read after the reading, is refused", () => {
+    expect(validate(sample(), new Date("2026-09-30T13:30:00Z"))).toEqual(["/generated_at: 2026-09-30T14:00Z is in the future"]);
+    expect(refused((d) => { d.review!.observed_at = "2026-09-30T15:00Z"; })).toEqual(["review: observed_at 2026-09-30T15:00Z is after generated_at"]);
+  });
+  test("a week twice in one series is refused", () =>
+    expect(refused((d) => { d.legs_started!.weeks![1]!.week_start = MONDAYS[0]!; })).toContain(`legs_started: week_start ${MONDAYS[0]} appears twice`));
+  test("open and complete must agree with the hour the block was read", () => {
+    expect(refused((d) => { d.cards_completed!.weeks![11]!.partial = true; })).toEqual([`cards_completed: week ${MONDAYS[11]} is marked open but had ended at 2026-09-30T14:00Z`]);
+    expect(refused((d) => { d.cards_completed!.weeks![12]!.partial = false; })).toEqual([`cards_completed: week ${MONDAYS[12]} is marked complete but had not ended at 2026-09-30T14:00Z`]);
+  });
+  test("a backwards review window is refused", () =>
+    expect(refused((d) => { d.review!.window = { since: "2026-09-30", until: "2026-09-16" }; })).toEqual(["review: window 2026-09-30 to 2026-09-16 runs backwards"]));
+  test("an open week is not compared across series read at different hours", () =>
+    expect(refused((d) => { d.prs_merged!.org!.weeks![12]!.count = 1; })).toEqual([]));
   test("the sample breaks none of them", () => expect(validate(sample())).toEqual([]));
 });
 
@@ -168,11 +182,24 @@ describe("the block", () => {
   test("the table holds thirteen weeks, newest first, the open one marked", () => {
     const rows = block.split("\n").filter((l) => /^\| \d{4}-/.test(l));
     expect(rows.length).toBe(13);
-    expect(rows[0]).toStartWith(`| ${MONDAYS[12]} (open at this reading) |`);
+    expect(rows[0]).toStartWith(`| ${MONDAYS[12]} | 312 (open) | 212 (open) | 512 (open) |`);
+    expect(rows[1]).toStartWith(`| ${MONDAYS[11]} | 311 | 211 | 511 |`);
     expect(rows[12]).toStartWith(`| ${MONDAYS[0]} |`);
   });
 
-  test("no raw HTML", () => expect(block).not.toContain("<"));
+  test("no raw HTML, and no link anywhere", () => {
+    expect(block).not.toContain("<");
+    expect(block).not.toMatch(/https?:|\]\(/);
+  });
+
+  test("a mean prints at two decimals at most", () => {
+    const d = sample();
+    d.review!.rounds_per_merged_pr_mean = 3.7700000000000005;
+    d.review!.p1_per_merged_pr_mean = 2.0399999999999996;
+    const b = renderBlock(d, { now: AT(1) });
+    expect(b).toContain("(mean 3.77)");
+    expect(b).toContain(": mean 2.04,");
+  });
 
   test("the blocking-findings mean is published below the table", () => {
     expect(block).toContain("Blocking findings caught before merge, per merged pull request on the system's own repository from 2026-09-16 to 2026-09-30: mean 2, as of 2026-09-30 14:00 UTC.");

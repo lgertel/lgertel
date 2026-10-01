@@ -55,7 +55,7 @@ jobs:
             echo "::error::no reading has ever passed; README.md left as it is"
             exit 1
           fi
-          bun scripts/render.ts --json data/delivery.json --readme README.md --data-repo "$DATA_REPO"
+          bun scripts/render.ts --json data/delivery.json --readme README.md
 
       - name: commit when anything changed
         run: |

@@ -2,7 +2,7 @@
 /**
  * render.ts — writes the delivery section of this README from `delivery.json`.
  *
- *   bun scripts/render.ts --json <path> [--readme README.md] [--data-repo <owner/name>]
+ *   bun scripts/render.ts --json <path> [--readme README.md]
  *                         [--block-out <path>] [--now <ISO time>]
  *   bun scripts/render.ts --json <path> --check     (validate only, write nothing)
  *
@@ -15,7 +15,7 @@
  * `--block-out` also writes the generated section alone (no markers), so it can be
  * screened as plain markdown. `--now` fixes the clock, for tests.
  *
- * The output depends on the JSON, on `--data-repo`, and on whether the reading is older
+ * The output depends on the JSON and on whether the reading is older
  * than 48 hours, so an hourly run over an unchanged JSON changes the README once: when
  * that reading crosses 48 hours.
  *
@@ -70,15 +70,18 @@ export interface Delivery {
  * section never says "of them", "mine included", "ISO week", "not measured" or
  * "last reading" about numbers that make the sentence false.
  */
-export function validator(schemaPath = SCHEMA_PATH): (data: unknown) => string[] {
+export function validator(schemaPath = SCHEMA_PATH): (data: unknown, now?: Date) => string[] {
   const ajv = new Ajv({ allErrors: true, strict: true, strictRequired: false });
   addFormats(ajv);
   const validate = ajv.compile(JSON.parse(readFileSync(schemaPath, "utf8")));
-  return (data) => {
+  return (data, now = new Date()) => {
     if (!validate(data)) return (validate.errors ?? []).map((e) => `${e.instancePath || "/"} ${e.message ?? "is invalid"}`);
-    return proseFacts(data as Delivery);
+    return proseFacts(data as Delivery, now);
   };
 }
+
+const WEEK_MS = 7 * 86_400_000;
+const hourMs = (h: string) => Date.parse(`${h.slice(0, 16)}:00Z`);
 
 /** `2026-09-30T14:00Z` names a real hour when it parses and prints back the same. */
 const realHour = (h: string) => {
@@ -86,9 +89,10 @@ const realHour = (h: string) => {
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 16) === h.slice(0, 16);
 };
 
-export function proseFacts(d: Delivery): string[] {
+export function proseFacts(d: Delivery, now: Date = new Date()): string[] {
   const out: string[] = [];
   const hours: Array<[string, string]> = [["/generated_at", d.generated_at]];
+  if (realHour(d.generated_at) && hourMs(d.generated_at) > now.getTime()) out.push(`/generated_at: ${d.generated_at} is in the future`);
   const blocks: Array<[string, Block | Review | Delivery["repos_active_30d"] | undefined]> = [
     ["prs_merged_operator", d.prs_merged?.operator], ["prs_merged_org", d.prs_merged?.org],
     ["prs_closed_unmerged_operator", d.prs_closed_unmerged?.operator], ["prs_closed_unmerged_org", d.prs_closed_unmerged?.org],
@@ -98,17 +102,30 @@ export function proseFacts(d: Delivery): string[] {
   for (const [name, b] of blocks) {
     if (!b) continue;
     hours.push([`${name}.observed_at`, b.observed_at]);
+    if (b.observed_at > d.generated_at) out.push(`${name}: observed_at ${b.observed_at} is after generated_at`);
+    const observed = hourMs(b.observed_at);
+    const seen = new Set<string>();
     for (const w of (b as Block).weeks ?? []) {
-      if (new Date(`${w.week_start}T00:00:00Z`).getUTCDay() !== 1) out.push(`${name}: week_start ${w.week_start} is not a Monday`);
+      const start = Date.parse(`${w.week_start}T00:00:00Z`);
+      if (new Date(start).getUTCDay() !== 1) out.push(`${name}: week_start ${w.week_start} is not a Monday`);
+      if (seen.has(w.week_start)) out.push(`${name}: week_start ${w.week_start} appears twice`);
+      seen.add(w.week_start);
       if (w.on_system_repo !== undefined && w.on_system_repo > w.count) out.push(`${name}: ${w.week_start} has more on the system's repository than in all`);
+      if (start > observed) out.push(`${name}: week ${w.week_start} starts after its reading`);
+      else if (!Number.isNaN(observed) && w.partial !== observed < start + WEEK_MS) {
+        out.push(`${name}: week ${w.week_start} is marked ${w.partial ? "open" : "complete"} but had ${w.partial ? "" : "not "}ended at ${b.observed_at}`);
+      }
     }
   }
+  const win = d.review?.window;
+  if (win && win.since > win.until) out.push(`review: window ${win.since} to ${win.until} runs backwards`);
   for (const [where, h] of hours) if (!realHour(h)) out.push(`${where}: ${h} is not a real hour`);
   for (const [mine, org] of [[d.prs_merged?.operator, d.prs_merged?.org], [d.prs_closed_unmerged?.operator, d.prs_closed_unmerged?.org]] as const) {
     if (mine?.state !== "read" || org?.state !== "read") continue;
     for (const w of mine.weeks ?? []) {
       const o = org.weeks?.find((x) => x.week_start === w.week_start);
-      if (o && o.count < w.count) out.push(`the company's ${w.week_start} is below mine, which it includes`);
+      // An open week is read at each block's own hour, so only closed weeks are compared.
+      if (o && !o.partial && !w.partial && o.count < w.count) out.push(`the company's ${w.week_start} is below mine, which it includes`);
     }
   }
   const blockOf = new Map<string, { state: State } | undefined>([...blocks, ["tokens_per_merged_pr", d.tokens]]);
@@ -154,6 +171,8 @@ const REASON_WORDS: Record<string, string> = {
 /** `2026-09-30T02:00Z` → `2026-09-30 02:00 UTC`. */
 export const hour = (h: string) => `${h.slice(0, 10)} ${h.slice(11, 16)} UTC`;
 const num = (n: number) => n.toLocaleString("en-US");
+/** A mean to two decimals at most: 3.77, 2, 3.5. */
+const mean = (n: number) => String(Math.round(n * 100) / 100);
 
 const read = <T extends { state: State }>(b: T | undefined): b is T => b !== undefined && b.state === "read";
 
@@ -197,7 +216,7 @@ function figureMerged(d: Delivery): string {
 function figureReview(d: Delivery): string {
   const r = d.review;
   if (!read(r)) return notMeasured("review rounds per merged pull request", r);
-  return `- **${r.rounds_per_merged_pr_median}** · review rounds per merged pull request, median (mean ${r.rounds_per_merged_pr_mean}), over ${num(r.merged_prs_in_window!)} pull requests merged on the system's own repository from ${r.window!.since} to ${r.window!.until} · a round is one pass by an automated reviewer that did not write the change, recorded on the pull request · as of ${hour(r.observed_at)}`;
+  return `- **${r.rounds_per_merged_pr_median}** · review rounds per merged pull request, median (mean ${mean(r.rounds_per_merged_pr_mean!)}), over ${num(r.merged_prs_in_window!)} pull requests merged on the system's own repository from ${r.window!.since} to ${r.window!.until} · a round is one pass by an automated reviewer that did not write the change, recorded on the pull request · as of ${hour(r.observed_at)}`;
 }
 
 function figureCards(d: Delivery): string {
@@ -230,13 +249,10 @@ function table(d: Delivery): string[] {
     { head: "agent runs started", block: d.legs_started, cell: (w) => w.count },
     { head: "system updates applied", block: d.system_updates, cell: (w) => w.count },
   ];
-  const partialWeek = new Map<string, boolean>();
-  for (const c of columns) {
-    if (!read(c.block)) continue;
-    for (const w of c.block.weeks ?? []) partialWeek.set(w.week_start, (partialWeek.get(w.week_start) ?? false) || w.partial);
-  }
-  const weeks = [...partialWeek.keys()].sort().slice(-TABLE_WEEKS).reverse();
-  if (weeks.length === 0) return ["No weekly series was read at this reading."];
+  const starts = new Set<string>();
+  for (const c of columns) if (read(c.block)) for (const w of c.block.weeks ?? []) starts.add(w.week_start);
+  const weeks = [...starts].sort().slice(-TABLE_WEEKS).reverse();
+  if (weeks.length === 0) return ["No weekly series is published at this reading."];
   const out = [
     `| ISO week from | ${columns.map((c) => c.head).join(" | ")} |`,
     `|---|${columns.map(() => "---:").join("|")}|`,
@@ -244,16 +260,17 @@ function table(d: Delivery): string[] {
   for (const week of weeks) {
     const cells = columns.map((c) => {
       const row = sameWeek(c.block, week);
-      return row ? num(c.cell(row)) : "n/a";
+      // Each series is read at its own hour, so "open" belongs to the cell, never the row.
+      return row ? `${num(c.cell(row))}${row.partial ? " (open)" : ""}` : "n/a";
     });
-    out.push(`| ${week}${partialWeek.get(week) ? " (open at this reading)" : ""} | ${cells.join(" | ")} |`);
+    out.push(`| ${week} | ${cells.join(" | ")} |`);
   }
   return out;
 }
 
 // ─── the block ──────────────────────────────────────────────────────────────
 
-export interface RenderOptions { now: Date; dataRepo?: string }
+export interface RenderOptions { now: Date }
 
 export function isOld(generatedAt: string, now: Date): boolean {
   const at = Date.parse(`${generatedAt.slice(0, 16)}:00Z`);
@@ -268,12 +285,12 @@ export function renderBlock(d: Delivery, opts: RenderOptions): string {
   lines.push(figureMerged(d), figureReview(d), figureCards(d), figureClosed(d), "", LIMITATIONS, "", "### Week by week", "", ...table(d), "");
   const r = d.review;
   if (read(r)) {
-    lines.push(`Blocking findings caught before merge, per merged pull request on the system's own repository from ${r.window!.since} to ${r.window!.until}: mean ${r.p1_per_merged_pr_mean}, as of ${hour(r.observed_at)}.`, "");
+    lines.push(`Blocking findings caught before merge, per merged pull request on the system's own repository from ${r.window!.since} to ${r.window!.until}: mean ${mean(r.p1_per_merged_pr_mean!)}, as of ${hour(r.observed_at)}.`, "");
   }
 
   lines.push("### How these are counted", "");
   lines.push(
-    "- **Mine**: pull requests I authored. **The company's**: every repository in the organization, every operator, mine included. A week is an ISO week, Monday to Sunday, in UTC; a week marked open at this reading had not ended when the reading was taken.",
+    "- **Mine**: pull requests I authored. **The company's**: every repository in the organization, every operator, mine included. A week is an ISO week, Monday to Sunday, in UTC. A figure marked open, in the list or the table, was counted before its week ended.",
     "- **Merged** and **closed unmerged**: one search per week and per population, read as the total the search reports, never by listing rows. The system's own repository is the one that holds the system running the rest, which is where most of my merges land.",
     "- **Review rounds**: on the system's own repository only, over the window named in the figure. The median is what a typical pull request took; the mean sits beside it.",
     "- **Work items completed**: items on my work board closed as completed. Items closed as not planned are left out.",
@@ -289,8 +306,7 @@ export function renderBlock(d: Delivery, opts: RenderOptions): string {
   }
   const unmeasured = (d.unmeasured ?? []).map((u) => `${METRIC_WORDS[u.metric]} (${REASON_WORDS[u.reason]})`);
   if (unmeasured.length > 0) lines.push(`- Not measured at this reading: ${unmeasured.join("; ")}.`);
-  const source = opts.dataRepo ? ` The data is the file delivery.json in https://github.com/${opts.dataRepo}, checked against its schema before this section is written.` : "";
-  lines.push("", `Reading of ${hour(d.generated_at)}.${source}`);
+  lines.push("", `Reading of ${hour(d.generated_at)}, checked against its schema before this section was written.`);
   return lines.join("\n");
 }
 
@@ -319,7 +335,7 @@ function flag(argv: string[], name: string): string | undefined {
 export function main(argv: string[]): number {
   const jsonPath = flag(argv, "--json");
   if (!jsonPath) {
-    console.error("usage: bun scripts/render.ts --json <path> [--check] [--readme README.md] [--data-repo <owner/name>] [--block-out <path>] [--now <ISO time>]");
+    console.error("usage: bun scripts/render.ts --json <path> [--check] [--readme README.md] [--block-out <path>] [--now <ISO time>]");
     return 2;
   }
   const checkOnly = argv.includes("--check");
@@ -337,7 +353,7 @@ export function main(argv: string[]): number {
     console.error(`render: ${jsonPath} is not readable JSON: ${e instanceof Error ? e.message : String(e)}`);
     return 1;
   }
-  const errors = validator()(data);
+  const errors = validator()(data, now);
   if (errors.length > 0) {
     console.error(`render: ${jsonPath} fails the schema or a fact the section states; nothing written`);
     for (const e of errors) console.error(`  ${e}`);
@@ -351,7 +367,7 @@ export function main(argv: string[]): number {
     console.log(`render: ${jsonPath} passes the schema`);
     return 0;
   }
-  const block = renderBlock(data as Delivery, { now, dataRepo: flag(argv, "--data-repo") });
+  const block = renderBlock(data as Delivery, { now });
   const next = splice(readFileSync(readmePath, "utf8"), block);
   const blockOut = flag(argv, "--block-out");
   if (blockOut) writeFileSync(blockOut, `${block}\n`);
