@@ -32,8 +32,26 @@ export const END = "<!-- delivery:end -->";
 export const OLD_AFTER_HOURS = 48;
 export const SCHEMA_PATH = join(import.meta.dir, "..", "data", "delivery.schema.json");
 
-export const LIMITATIONS =
-  "These are counts from private repositories and a private work board; a reader cannot re-run the queries, and the dated receipts are at /log. They count merged work, not revenue. A pull request is counted when GitHub records the merge; a review round is one pass by an automated reviewer that did not write the change, recorded on the pull request; an agent run is one session on one work item; most of my own merges are on the system that runs the rest. Counts, never contents: no repository, client, path or person is published.";
+const LIMITS_HEAD =
+  "These are counts from private repositories and a private work board; a reader cannot re-run the queries, and the dated receipts are at /log. They count merged work, not revenue. A pull request is counted when GitHub records the merge; a review round is one pass by an automated reviewer that did not write the change, recorded on the pull request; an agent run is one session on one work item";
+const LIMITS_TAIL = "Counts, never contents: no repository, client, path or person is published.";
+
+/**
+ * The limitations paragraph. Its one clause about the data states the measured share
+ * of my merges on the system's own repository over the last two complete weeks (the
+ * principal's pick on the L2 card); with fewer than two complete weeks read, the
+ * clause is left out rather than guessed.
+ */
+export function limitations(d: Delivery): string {
+  const mine = d.prs_merged?.operator;
+  const complete = mine?.state === "read"
+    ? [...(mine.weeks ?? [])].filter((w) => !w.partial).sort((x, y) => (x.week_start < y.week_start ? -1 : 1)).slice(-2)
+    : [];
+  if (complete.length < 2) return `${LIMITS_HEAD}. ${LIMITS_TAIL}`;
+  const all = complete.reduce((n, w) => n + w.count, 0);
+  const sys = complete.reduce((n, w) => n + (w.on_system_repo ?? 0), 0);
+  return `${LIMITS_HEAD}; in the ISO weeks of ${complete[0]!.week_start} and ${complete[1]!.week_start}, ${num(sys)} of my ${num(all)} merged pull requests were on the system that runs the rest. ${LIMITS_TAIL}`;
+}
 
 // ─── the data shape (what the schema allows) ────────────────────────────────
 
@@ -282,7 +300,7 @@ export function renderBlock(d: Delivery, opts: RenderOptions): string {
   if (isOld(d.generated_at, opts.now)) {
     lines.push(`Last reading ${hour(d.generated_at)}. Every figure below is from that reading.`, "");
   }
-  lines.push(figureMerged(d), figureReview(d), figureCards(d), figureClosed(d), "", LIMITATIONS, "", "### Week by week", "", ...table(d), "");
+  lines.push(figureMerged(d), figureReview(d), figureCards(d), figureClosed(d), "", limitations(d), "", "### Week by week", "", ...table(d), "");
   const r = d.review;
   if (read(r)) {
     lines.push(`Blocking findings caught before merge, per merged pull request on the system's own repository from ${r.window!.since} to ${r.window!.until}: mean ${mean(r.p1_per_merged_pr_mean!)}, as of ${hour(r.observed_at)}.`, "");

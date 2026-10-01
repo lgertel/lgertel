@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "delivery.schema.json",
-  "title": "DuranteOS public delivery counts, v1 (after the Forge audit and the Max second look, 2026-09-29)",
+  "title": "Public delivery counts, schema v1",
   "description": "A closed schema: counts, dates, bounded means and enums only. Every metric block carries its own provenance (population, source, state, observed_at) and its figures may be present ONLY when its state is `read`; an unreadable source is a block with no figures, never a zero. There is no field a card title, a path, a name, a store, a session id, a repo name, a goal, a reason sentence, a host or a dollar amount could travel in. Every number has a maximum tight enough that a value of another magnitude routed into the wrong field is refused (a dollar figure into a mean, a token sum into a count); between two counts of one magnitude the producer's explicit field mapping, pinned by its provenance test, is the guard. Weekly series only in v1 (a per-day series is a decision for the principal).",
   "type": "object",
   "additionalProperties": false,

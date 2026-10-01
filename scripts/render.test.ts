@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { END, LIMITATIONS, main, renderBlock, splice, START, validator, type Delivery } from "./render";
+import { END, limitations, main, renderBlock, splice, START, validator, type Delivery } from "./render";
 
 // Synthetic numbers only: thirteen ISO weeks, the last one still open.
 const MONDAYS = Array.from({ length: 13 }, (_, i) => new Date(Date.UTC(2026, 6, 6 + 7 * i)).toISOString().slice(0, 10));
@@ -186,13 +186,30 @@ describe("the block", () => {
 
   test("then the limitations paragraph verbatim, the table, the counting notes", () => {
     const iFig = block.indexOf(figures[3]);
-    const iLim = block.indexOf(`\n${LIMITATIONS}\n`);
+    const iLim = block.indexOf(`\n${limitations(d)}\n`);
     const iTable = block.indexOf("### Week by week");
     const iHow = block.indexOf("### How these are counted");
     expect(iFig).toBeGreaterThan(-1);
     expect(iLim).toBeGreaterThan(iFig);
     expect(iTable).toBeGreaterThan(iLim);
     expect(iHow).toBeGreaterThan(iTable);
+  });
+
+  test("the limitations paragraph states the measured share over the last two complete weeks", () => {
+    // Weeks 10 and 11 are the last two complete ones: 310 + 311 merged, 210 + 211 on the system's repository.
+    expect(limitations(d)).toContain(`an agent run is one session on one work item; in the ISO weeks of ${MONDAYS[10]} and ${MONDAYS[11]}, 421 of my 621 merged pull requests were on the system that runs the rest. Counts, never contents: no repository, client, path or person is published.`);
+    expect(block).toContain("421 of my 621 merged pull requests");
+    expect(block).not.toContain("most of my own merges");
+  });
+
+  test("with fewer than two complete weeks read, the share clause is left out", () => {
+    const one = sample();
+    one.prs_merged!.operator!.weeks = one.prs_merged!.operator!.weeks!.slice(-2);
+    expect(limitations(one)).toContain("an agent run is one session on one work item. Counts, never contents:");
+    expect(limitations(one)).not.toContain("merged pull requests were on");
+    const unread = sample();
+    unread.prs_merged!.operator = { population: "operator", source: "github_search", state: "unreadable", observed_at: "2026-09-30T02:00Z" } as never;
+    expect(limitations(unread)).not.toContain("merged pull requests were on");
   });
 
   test("the table holds thirteen weeks, newest first, the open one marked", () => {
