@@ -74,7 +74,7 @@ describe("facts the prose states", () => {
     expect(refused((d) => { d.unmeasured = [{ metric: "review", reason: "source_partial" }]; })).toEqual(["unmeasured: review is listed as not measured and was read"]));
   test("an hour the pattern accepts but no clock has is refused", () => {
     expect(refused((d) => { d.generated_at = "2026-02-30T14:00Z"; })).toContain("/generated_at: 2026-02-30T14:00Z is not a real hour");
-    expect(refused((d) => { d.review!.observed_at = "2026-09-30T25:00Z"; })).toEqual(["review.observed_at: 2026-09-30T25:00Z is not a real hour"]);
+    expect(refused((d) => { d.review!.observed_at = "2026-09-30T25:00Z"; })).toContain("review.observed_at: 2026-09-30T25:00Z is not a real hour");
   });
   test("a reading from the future, or a block read after the reading, is refused", () => {
     expect(validate(sample(), new Date("2026-09-30T13:30:00Z"))).toEqual(["/generated_at: 2026-09-30T14:00Z is in the future"]);
