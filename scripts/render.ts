@@ -210,7 +210,7 @@ function figureMerged(d: Delivery): string {
   if (!read(mine)) return notMeasured("pull requests merged, mine", mine);
   const w = figureWeek(mine)!;
   const company = companyClause(d.prs_merged?.org, w.week_start, mine.observed_at);
-  return `- **${num(w.count)}** · pull requests merged ${weekWords(w)}, mine, ${num(w.on_system_repo ?? 0)} of them on the system's own repository${company} · counted when GitHub records the merge, one search per week by author and one by organization · as of ${hour(mine.observed_at)}`;
+  return `- **${num(w.count)}** · pull requests merged ${weekWords(w)}, mine, ${num(w.on_system_repo ?? 0)} of them on the system's own repository${company} · counted when GitHub records the merge, one search per week by author${company ? " and one by organization" : ""} · as of ${hour(mine.observed_at)}`;
 }
 
 function figureReview(d: Delivery): string {

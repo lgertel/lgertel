@@ -123,8 +123,10 @@ describe("CLI", () => {
   test("a valid JSON writes README.md and the block alone", () => {
     const r = run(sample());
     expect(r.code).toBe(0);
-    expect(r.readme.startsWith(PROSE)).toBe(true);
-    expect(readFileSync(join(dir, "block.md"), "utf8")).toBe(`${renderBlock(sample(), { now: AT(1) })}\n`);
+    const block = renderBlock(sample(), { now: AT(1) });
+    expect(r.readme).toBe(splice(PROSE, block));
+    expect(r.readme).toContain(START);
+    expect(readFileSync(join(dir, "block.md"), "utf8")).toBe(`${block}\n`);
   });
 });
 
@@ -306,6 +308,7 @@ describe("a source that was not read", () => {
     const first = renderBlock(d, { now: AT(1) }).split("\n").find((l) => l.startsWith("- **"))!;
     expect(first).toContain("mine, ");
     expect(first).not.toContain("the company's");
+    expect(first).toContain("one search per week by author ·");
   });
   test("a repositories block that was not read says not measured", () => {
     const d = sample();
