@@ -1,0 +1,284 @@
+#!/usr/bin/env bun
+/**
+ * render.ts — writes the delivery section of this README from `delivery.json`.
+ *
+ *   bun scripts/render.ts --json <path> [--readme README.md] [--data-repo <owner/name>]
+ *                         [--block-out <path>] [--now <ISO time>]
+ *
+ * The JSON is validated against `data/delivery.schema.json` (a closed schema: counts,
+ * dates and enums only) before anything is written. An invalid JSON exits 1 and leaves
+ * every file untouched. Everything above `<!-- delivery:start -->` is hand-written and
+ * is kept byte for byte; the section between the markers is replaced. A README with no
+ * markers gets them appended once, at the end.
+ *
+ * `--block-out` also writes the generated section alone (no markers), so it can be
+ * screened as plain markdown. `--now` fixes the clock, for tests.
+ *
+ * The output depends only on the JSON and on whether its reading is older than 48 hours,
+ * so an hourly run over an unchanged JSON changes nothing.
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+
+export const START = "<!-- delivery:start -->";
+export const END = "<!-- delivery:end -->";
+export const OLD_AFTER_HOURS = 48;
+export const SCHEMA_PATH = join(import.meta.dir, "..", "data", "delivery.schema.json");
+
+export const LIMITATIONS =
+  "These are counts from private repositories and a private work board; a reader cannot re-run the queries, and the dated receipts are at /log. They count merged work, not revenue. A pull request is counted when GitHub records the merge; a review round is one pass by an automated reviewer that did not write the change, recorded on the pull request; an agent run is one session on one work item; most of my own merges are on the system that runs the rest. Counts, never contents: no repository, client, path or person is published.";
+
+// ─── the data shape (what the schema allows) ────────────────────────────────
+
+type State = "read" | "partial" | "unreadable" | "rate_limited";
+interface Week { week_start: string; count: number; partial: boolean; on_system_repo?: number }
+interface Block { state: State; observed_at: string; weeks?: Week[] }
+interface Review extends Block {
+  window?: { since: string; until: string };
+  merged_prs_in_window?: number;
+  rounds_per_merged_pr_mean?: number;
+  rounds_per_merged_pr_median?: number;
+}
+export interface Delivery {
+  schema_version: 1;
+  generated_at: string;
+  prs_merged?: { operator?: Block; org?: Block };
+  prs_closed_unmerged?: { operator?: Block; org?: Block };
+  review?: Review;
+  cards_completed?: Block;
+  legs_started?: Block;
+  system_updates?: Block;
+  repos_active_30d?: { state: State; observed_at: string; count?: number; completeness?: "exact" | "lower_bound" };
+  unmeasured?: Array<{ metric: string; reason: string }>;
+}
+
+// ─── validation ─────────────────────────────────────────────────────────────
+
+export function validator(schemaPath = SCHEMA_PATH): (data: unknown) => string[] {
+  const ajv = new Ajv({ allErrors: true, strict: true, strictRequired: false });
+  addFormats(ajv);
+  const validate = ajv.compile(JSON.parse(readFileSync(schemaPath, "utf8")));
+  return (data) => (validate(data) ? [] : (validate.errors ?? []).map((e) => `${e.instancePath || "/"} ${e.message ?? "is invalid"}`));
+}
+
+// ─── words ──────────────────────────────────────────────────────────────────
+
+const STATE_WORDS: Record<Exclude<State, "read">, string> = {
+  partial: "the source was only partly read at this reading, so no figure is published",
+  unreadable: "the source could not be read at this reading",
+  rate_limited: "the source turned the query away for its rate limit at this reading",
+};
+
+const METRIC_WORDS: Record<string, string> = {
+  prs_merged_operator: "pull requests merged, mine",
+  prs_merged_org: "pull requests merged, the company's",
+  prs_closed_unmerged_operator: "pull requests closed without merging, mine",
+  prs_closed_unmerged_org: "pull requests closed without merging, the company's",
+  review: "review rounds per merged pull request",
+  cards_completed: "work items completed",
+  legs_started: "agent runs started",
+  system_updates: "system updates applied",
+  tokens_per_merged_pr: "tokens spent per merged pull request",
+  repos_active_30d: "repositories with a merge in the last 30 days",
+  fitness_ratio: "share of delivered work per unit of attention",
+  clean_finish_rate: "share of agent runs that finished cleanly",
+};
+
+const REASON_WORDS: Record<string, string> = {
+  sample_below_floor: "too few cases to state a figure",
+  no_gate_in_window: "nothing to count in the window",
+  source_unreadable: "the source could not be read",
+  source_partial: "the source was only partly read",
+  not_declared: "not configured on this install",
+  rate_limited: "the source turned the query away for its rate limit",
+  not_published: "not published in this version",
+};
+
+/** `2026-09-30T02:00Z` → `2026-09-30 02:00 UTC`. */
+export const hour = (h: string) => `${h.slice(0, 10)} ${h.slice(11, 16)} UTC`;
+const num = (n: number) => n.toLocaleString("en-US");
+
+const read = <T extends { state: State }>(b: T | undefined): b is T => b !== undefined && b.state === "read";
+
+/** The newest complete week of a series, or its newest row when none is complete. */
+function figureWeek(b: Block): Week | undefined {
+  const weeks = b.weeks ?? [];
+  return [...weeks].reverse().find((w) => !w.partial) ?? weeks[weeks.length - 1];
+}
+
+const weekWords = (w: Week) => (w.partial ? `so far in the ISO week of ${w.week_start}` : `in the ISO week of ${w.week_start}`);
+
+function notMeasured(label: string, b: { state: State; observed_at: string } | undefined): string {
+  if (!b) return `- **not measured** · ${label} · not in this reading`;
+  return `- **not measured** · ${label} · ${STATE_WORDS[b.state as Exclude<State, "read">]} · as of ${hour(b.observed_at)}`;
+}
+
+/** The org series row for the same week as the operator's figure. */
+const sameWeek = (b: Block | undefined, week: string) => (read(b) ? b.weeks?.find((w) => w.week_start === week) : undefined);
+
+// ─── the four figures ───────────────────────────────────────────────────────
+
+function figureMerged(d: Delivery): string {
+  const mine = d.prs_merged?.operator;
+  if (!read(mine)) return notMeasured("pull requests merged, mine", mine);
+  const w = figureWeek(mine)!;
+  const org = sameWeek(d.prs_merged?.org, w.week_start);
+  const company = org ? `; the company's, all operators, mine included: **${num(org.count)}**` : "";
+  return `- **${num(w.count)}** · pull requests merged ${weekWords(w)}, mine, ${num(w.on_system_repo ?? 0)} of them on the system's own repository${company} · counted when GitHub records the merge, one search per week by author and one by organization · as of ${hour(mine.observed_at)}`;
+}
+
+function figureReview(d: Delivery): string {
+  const r = d.review;
+  if (!read(r)) return notMeasured("review rounds per merged pull request", r);
+  return `- **${r.rounds_per_merged_pr_median}** · review rounds per merged pull request, median (mean ${r.rounds_per_merged_pr_mean}), over ${num(r.merged_prs_in_window!)} pull requests merged on the system's own repository from ${r.window!.since} to ${r.window!.until} · a round is one pass by an automated reviewer that did not write the change, recorded on the pull request · as of ${hour(r.observed_at)}`;
+}
+
+function figureCards(d: Delivery): string {
+  const c = d.cards_completed;
+  if (!read(c)) return notMeasured("work items completed", c);
+  const w = figureWeek(c)!;
+  return `- **${num(w.count)}** · work items completed ${weekWords(w)} · items on my work board closed as completed; items closed as not planned are not counted · as of ${hour(c.observed_at)}`;
+}
+
+function figureClosed(d: Delivery): string {
+  const mine = d.prs_closed_unmerged?.operator;
+  if (!read(mine)) return notMeasured("pull requests closed without merging, mine", mine);
+  const w = figureWeek(mine)!;
+  const org = sameWeek(d.prs_closed_unmerged?.org, w.week_start);
+  const company = org ? `; the company's, all operators, mine included: **${num(org.count)}**` : "";
+  return `- **${num(w.count)}** · pull requests closed without merging ${weekWords(w)}, mine${company} · counted by the same weekly searches, closed and not merged · as of ${hour(mine.observed_at)}`;
+}
+
+// ─── the twelve-week table ──────────────────────────────────────────────────
+
+const TABLE_WEEKS = 13; // twelve complete ISO weeks and the current one
+
+function table(d: Delivery): string[] {
+  const columns: Array<{ head: string; block: Block | undefined; cell: (w: Week) => number }> = [
+    { head: "merged, mine", block: d.prs_merged?.operator, cell: (w) => w.count },
+    { head: "of them on the system's repository", block: d.prs_merged?.operator, cell: (w) => w.on_system_repo ?? 0 },
+    { head: "merged, the company's", block: d.prs_merged?.org, cell: (w) => w.count },
+    { head: "closed unmerged, mine", block: d.prs_closed_unmerged?.operator, cell: (w) => w.count },
+    { head: "closed unmerged, the company's", block: d.prs_closed_unmerged?.org, cell: (w) => w.count },
+    { head: "work items completed", block: d.cards_completed, cell: (w) => w.count },
+    { head: "agent runs started", block: d.legs_started, cell: (w) => w.count },
+    { head: "system updates applied", block: d.system_updates, cell: (w) => w.count },
+  ];
+  const partialWeek = new Map<string, boolean>();
+  for (const c of columns) {
+    if (!read(c.block)) continue;
+    for (const w of c.block.weeks ?? []) partialWeek.set(w.week_start, (partialWeek.get(w.week_start) ?? false) || w.partial);
+  }
+  const weeks = [...partialWeek.keys()].sort().slice(-TABLE_WEEKS).reverse();
+  if (weeks.length === 0) return ["No weekly series was read at this reading."];
+  const out = [
+    `| ISO week from | ${columns.map((c) => c.head).join(" | ")} |`,
+    `|---|${columns.map(() => "---:").join("|")}|`,
+  ];
+  for (const week of weeks) {
+    const cells = columns.map((c) => {
+      const row = sameWeek(c.block, week);
+      return row ? num(c.cell(row)) : "n/a";
+    });
+    out.push(`| ${week}${partialWeek.get(week) ? " (so far)" : ""} | ${cells.join(" | ")} |`);
+  }
+  return out;
+}
+
+// ─── the block ──────────────────────────────────────────────────────────────
+
+export interface RenderOptions { now: Date; dataRepo?: string }
+
+export function isOld(generatedAt: string, now: Date): boolean {
+  const at = Date.parse(`${generatedAt.slice(0, 16)}:00Z`);
+  return now.getTime() - at > OLD_AFTER_HOURS * 3_600_000;
+}
+
+export function renderBlock(d: Delivery, opts: RenderOptions): string {
+  const lines: string[] = ["## Delivery, counted", ""];
+  if (isOld(d.generated_at, opts.now)) {
+    lines.push(`Last reading ${hour(d.generated_at)}. Every figure below is from that reading.`, "");
+  }
+  lines.push(figureMerged(d), figureReview(d), figureCards(d), figureClosed(d), "", LIMITATIONS, "", "### Twelve weeks", "", ...table(d), "");
+
+  lines.push("### How these are counted", "");
+  lines.push(
+    "- **Mine**: pull requests I authored. **The company's**: every repository in the organization, every operator, mine included. A week is an ISO week, Monday to Sunday, in UTC; a week marked so far is still open.",
+    "- **Merged** and **closed unmerged**: one search per week and per population, read as the total the search reports, never by listing rows. The system's own repository is the one that holds the system running the rest, which is where most of my merges land.",
+    "- **Review rounds**: on the system's own repository only, over the window named in the figure. The median comes first because a few long reviews pull the mean up.",
+    "- **Work items completed**: items on my work board closed as completed. Items closed as not planned are left out.",
+    "- **Agent runs started**: one session on one work item, counted when it starts, whether or not it finished.",
+    "- **System updates applied**: one recorded change to the system's own setup, counted when applied.",
+    "- A figure whose source could not be read is shown as not measured, and as n/a in the table.",
+  );
+  const repos = d.repos_active_30d;
+  if (read(repos)) {
+    lines.push(`- **Repositories with a merge in the last 30 days**: ${repos.completeness === "lower_bound" ? "at least " : ""}${num(repos.count!)}, as of ${hour(repos.observed_at)}. Names are never published.`);
+  }
+  const unmeasured = (d.unmeasured ?? []).map((u) => `${METRIC_WORDS[u.metric]} (${REASON_WORDS[u.reason]})`);
+  if (unmeasured.length > 0) lines.push(`- Not measured at this reading: ${unmeasured.join("; ")}.`);
+  const source = opts.dataRepo ? ` The data is the file delivery.json in https://github.com/${opts.dataRepo}, checked against its schema before this section is written.` : "";
+  lines.push("", `Reading of ${hour(d.generated_at)}.${source}`);
+  return lines.join("\n");
+}
+
+// ─── the README ─────────────────────────────────────────────────────────────
+
+export function splice(readme: string, block: string): string {
+  const start = readme.indexOf(START);
+  const end = readme.indexOf(END);
+  if (start === -1 && end === -1) {
+    const base = readme.endsWith("\n") ? readme : `${readme}\n`;
+    return `${base}\n${START}\n${block}\n${END}\n`;
+  }
+  if (start === -1 || end === -1 || end < start || readme.indexOf(START, start + 1) !== -1 || readme.indexOf(END, end + 1) !== -1) {
+    throw new Error(`README markers are malformed: expected exactly one ${START} before exactly one ${END}`);
+  }
+  return `${readme.slice(0, start)}${START}\n${block}\n${readme.slice(end)}`;
+}
+
+// ─── CLI ────────────────────────────────────────────────────────────────────
+
+function flag(argv: string[], name: string): string | undefined {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : undefined;
+}
+
+export function main(argv: string[]): number {
+  const jsonPath = flag(argv, "--json");
+  if (!jsonPath) {
+    console.error("usage: bun scripts/render.ts --json <path> [--readme README.md] [--data-repo <owner/name>] [--block-out <path>] [--now <ISO time>]");
+    return 2;
+  }
+  const readmePath = flag(argv, "--readme") ?? "README.md";
+  const nowFlag = flag(argv, "--now");
+  const now = nowFlag ? new Date(nowFlag) : new Date();
+  if (Number.isNaN(now.getTime())) {
+    console.error(`render: --now is not a time: ${nowFlag}`);
+    return 2;
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(jsonPath, "utf8"));
+  } catch (e) {
+    console.error(`render: ${jsonPath} is not readable JSON: ${e instanceof Error ? e.message : String(e)}`);
+    return 1;
+  }
+  const errors = validator()(data);
+  if (errors.length > 0) {
+    console.error(`render: ${jsonPath} fails the schema; nothing written`);
+    for (const e of errors) console.error(`  ${e}`);
+    return 1;
+  }
+  const block = renderBlock(data as Delivery, { now, dataRepo: flag(argv, "--data-repo") });
+  const next = splice(readFileSync(readmePath, "utf8"), block);
+  const blockOut = flag(argv, "--block-out");
+  if (blockOut) writeFileSync(blockOut, `${block}\n`);
+  writeFileSync(readmePath, next);
+  console.log(`render: ${readmePath} written from the reading of ${(data as Delivery).generated_at}`);
+  return 0;
+}
+
+if (import.meta.main) process.exit(main(process.argv.slice(2)));

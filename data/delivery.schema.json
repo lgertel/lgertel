@@ -1,0 +1,257 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "delivery.schema.json",
+  "title": "DuranteOS public delivery counts, v1 (after the Forge audit and the Max second look, 2026-09-29)",
+  "description": "A closed schema: counts, dates, bounded means and enums only. Every metric block carries its own provenance (population, source, state, observed_at) and its figures may be present ONLY when its state is `read`; an unreadable source is a block with no figures, never a zero. There is no field a card title, a path, a name, a store, a session id, a repo name, a goal, a reason sentence, a host or a dollar amount could travel in. Every number has a maximum tight enough that a value of another magnitude routed into the wrong field is refused (a dollar figure into a mean, a token sum into a count); between two counts of one magnitude the producer's explicit field mapping, pinned by its provenance test, is the guard. Weekly series only in v1 (a per-day series is a decision for the principal).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "windows"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "$ref": "#/definitions/hour" },
+    "windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["week"],
+      "properties": { "week": { "enum": ["iso-week"] } }
+    },
+    "prs_merged": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operator": { "$ref": "#/definitions/pr_series_operator" },
+        "org": { "$ref": "#/definitions/pr_series_org" }
+      }
+    },
+    "prs_closed_unmerged": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operator": { "$ref": "#/definitions/weekly_block_operator_github" },
+        "org": { "$ref": "#/definitions/weekly_block_org_github" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["install"] },
+        "source": { "enum": ["delivery_meters"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "window": { "$ref": "#/definitions/window" },
+        "merged_prs_in_window": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "rounds_per_merged_pr_mean": { "type": "number", "minimum": 0, "maximum": 30 },
+        "rounds_per_merged_pr_median": { "type": "integer", "minimum": 0, "maximum": 30 },
+        "p1_per_merged_pr_mean": { "type": "number", "minimum": 0, "maximum": 50 }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["window", "merged_prs_in_window", "rounds_per_merged_pr_mean", "rounds_per_merged_pr_median", "p1_per_merged_pr_mean"] },
+      "else": { "properties": { "window": false, "merged_prs_in_window": false, "rounds_per_merged_pr_mean": false, "rounds_per_merged_pr_median": false, "p1_per_merged_pr_mean": false } }
+    },
+    "cards_completed": { "$ref": "#/definitions/weekly_block_board" },
+    "legs_started": { "$ref": "#/definitions/weekly_total_block_ledger" },
+    "system_updates": { "$ref": "#/definitions/weekly_total_block_updates" },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["install"] },
+        "source": { "enum": ["leg_ledger"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "floor": { "type": "boolean" },
+        "per_merged_pr": { "type": "integer", "minimum": 100000, "maximum": 10000000000 },
+        "weeks": { "$ref": "#/definitions/week_rows_big" }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["floor", "per_merged_pr", "weeks"] },
+      "else": { "properties": { "floor": false, "per_merged_pr": false, "weeks": false } }
+    },
+    "repos_active_30d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["org"] },
+        "source": { "enum": ["github_search"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "completeness": { "enum": ["exact", "lower_bound"] }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["count", "completeness"] },
+      "else": { "properties": { "count": false, "completeness": false } }
+    },
+    "unmeasured": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "reason"],
+        "properties": {
+          "metric": { "enum": ["prs_merged_operator", "prs_merged_org", "prs_closed_unmerged_operator", "prs_closed_unmerged_org", "review", "cards_completed", "legs_started", "system_updates", "tokens_per_merged_pr", "repos_active_30d", "fitness_ratio", "clean_finish_rate"] },
+          "reason": { "enum": ["sample_below_floor", "no_gate_in_window", "source_unreadable", "source_partial", "not_declared", "rate_limited", "not_published"] }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "hour": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:00Z$" },
+    "date": { "type": "string", "format": "date" },
+    "state": { "enum": ["read", "partial", "unreadable", "rate_limited"] },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["since", "until"],
+      "properties": { "since": { "$ref": "#/definitions/date" }, "until": { "$ref": "#/definitions/date" } }
+    },
+    "week_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["week_start", "count", "partial"],
+      "properties": {
+        "week_start": { "$ref": "#/definitions/date" },
+        "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "partial": { "type": "boolean" }
+      }
+    },
+    "week_row_operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["week_start", "count", "on_system_repo", "partial"],
+      "properties": {
+        "week_start": { "$ref": "#/definitions/date" },
+        "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "on_system_repo": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "partial": { "type": "boolean" }
+      }
+    },
+    "week_row_big": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["week_start", "count", "partial"],
+      "properties": {
+        "week_start": { "$ref": "#/definitions/date" },
+        "count": { "type": "integer", "minimum": 0, "maximum": 10000000000000 },
+        "partial": { "type": "boolean" }
+      }
+    },
+    "week_rows": { "type": "array", "items": { "$ref": "#/definitions/week_row" }, "minItems": 1, "maxItems": 53 },
+    "week_rows_operator": { "type": "array", "items": { "$ref": "#/definitions/week_row_operator" }, "minItems": 1, "maxItems": 53 },
+    "week_rows_big": { "type": "array", "items": { "$ref": "#/definitions/week_row_big" }, "minItems": 1, "maxItems": 53 },
+    "pr_series_operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["operator"] },
+        "source": { "enum": ["github_search"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "weeks": { "$ref": "#/definitions/week_rows_operator" }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["weeks"] },
+      "else": { "properties": { "weeks": false } }
+    },
+    "pr_series_org": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at", "includes_operator"],
+      "properties": {
+        "population": { "enum": ["org"] },
+        "source": { "enum": ["github_search"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "includes_operator": { "const": true },
+        "weeks": { "$ref": "#/definitions/week_rows" }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["weeks"] },
+      "else": { "properties": { "weeks": false } }
+    },
+    "weekly_block_operator_github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["operator"] },
+        "source": { "enum": ["github_search"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "weeks": { "$ref": "#/definitions/week_rows" }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["weeks"] },
+      "else": { "properties": { "weeks": false } }
+    },
+    "weekly_block_org_github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at", "includes_operator"],
+      "properties": {
+        "population": { "enum": ["org"] },
+        "source": { "enum": ["github_search"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "includes_operator": { "const": true },
+        "weeks": { "$ref": "#/definitions/week_rows" }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["weeks"] },
+      "else": { "properties": { "weeks": false } }
+    },
+    "weekly_block_board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["board"] },
+        "source": { "enum": ["board"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "weeks": { "$ref": "#/definitions/week_rows" }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["weeks"] },
+      "else": { "properties": { "weeks": false } }
+    },
+    "weekly_total_block_ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["install"] },
+        "source": { "enum": ["leg_ledger"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "weeks": { "$ref": "#/definitions/week_rows" },
+        "total": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["weeks", "total"] },
+      "else": { "properties": { "weeks": false, "total": false } }
+    },
+    "weekly_total_block_updates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["population", "source", "state", "observed_at"],
+      "properties": {
+        "population": { "enum": ["install"] },
+        "source": { "enum": ["system_updates"] },
+        "state": { "$ref": "#/definitions/state" },
+        "observed_at": { "$ref": "#/definitions/hour" },
+        "weeks": { "$ref": "#/definitions/week_rows" },
+        "total": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+      },
+      "if": { "properties": { "state": { "const": "read" } } },
+      "then": { "required": ["weeks", "total"] },
+      "else": { "properties": { "weeks": false, "total": false } }
+    }
+  }
+}
