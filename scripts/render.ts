@@ -226,7 +226,7 @@ export function renderBlock(d: Delivery, opts: RenderOptions): string {
     "- A figure whose source could not be read is shown as not measured. In the table, n/a means there is no figure for that week: the source was not read, or it had no row for that week.",
   );
   const repos = d.repos_active_30d;
-  if (read(repos)) {
+  if (repos && repos.state === "read") {
     lines.push(`- **Repositories with a merge in the last 30 days**: ${repos.completeness === "lower_bound" ? "at least " : ""}${num(repos.count!)}, as of ${hour(repos.observed_at)}. Names are never published.`);
   } else if (repos) {
     lines.push(`- **Repositories with a merge in the last 30 days**: not measured; ${STATE_WORDS[repos.state as Exclude<State, "read">]}, as of ${hour(repos.observed_at)}.`);
