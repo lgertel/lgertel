@@ -17,6 +17,8 @@ Private repos, public build log: https://durante.tech
 <!-- delivery:start -->
 ## Delivery, counted
 
+Last reading 2026-10-01 15:00 UTC. Every figure below is from that reading.
+
 - **344** · pull requests merged in the ISO week of 2026-09-21, mine, 339 of them on the system's own repository; the company's, all operators, mine included: **593** · counted when GitHub records the merge, one search per week by author and one by organization · as of 2026-09-30 02:00 UTC
 - **2** · review rounds per merged pull request, median (mean 3.43), over 598 pull requests merged on the system's own repository from 2026-09-17 to 2026-10-01 · a round is one pass by an automated reviewer that did not write the change, recorded on the pull request · as of 2026-10-01 15:00 UTC
 - **415** · work items completed in the ISO week of 2026-09-21 · items on my work board closed as completed; items closed as not planned are not counted · as of 2026-10-01 15:00 UTC
